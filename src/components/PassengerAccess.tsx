@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { signIn } from "../lib/auth";
+import { supabase } from "../lib/supabase";
 
 type Props = { onSuccess: () => void };
 
@@ -11,9 +11,10 @@ export default function PassengerAccess({ onSuccess }: Props) {
 
   async function handleSubmit(e:React.FormEvent){
     e.preventDefault(); setLoading(true); setError("");
-    try { await signIn(email,password); onSuccess(); }
-    catch(err){ setError(err instanceof Error ? err.message : "Não foi possível iniciar sessão."); }
-    finally { setLoading(false); }
+    const result = await supabase.auth.signInWithPassword({ email, password });
+    if(result.error) setError(result.error.message);
+    else onSuccess();
+    setLoading(false);
   }
 
   return <form onSubmit={handleSubmit} className="access-card">
