@@ -1,28 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import TripMap from "./TripMap";
-
+import { Car, Phone, MessageCircle, ShieldCheck } from "lucide-react";
 type Point={lat:number;lng:number};
-
+const labels:Record<string,string>={requested:"A procurar motorista",accepted:"Motorista encontrado",driver_arriving:"Motorista a caminho",arrived:"Motorista chegou",in_progress:"Viagem em andamento",completed:"Viagem concluída",cancelled:"Viagem cancelada"};
 export default function TripTracking({tripId,driverId}:{tripId:string;driverId?:string}){
-  const [driver,setDriver]=useState<Point|null>(null);
-  const [passenger,setPassenger]=useState<Point|null>(null);
-  const [status,setStatus]=useState("requested");
-
-  async function load(){
-    const {data:t}=await supabase.from("trips").select("status,pickup_lat,pickup_lng").eq("id",tripId).maybeSingle();
-    if(t){setStatus(t.status);if(t.pickup_lat&&t.pickup_lng)setPassenger({lat:t.pickup_lat,lng:t.pickup_lng});}
-    if(driverId){const {data:d}=await supabase.from("drivers").select("current_lat,current_lng").eq("id",driverId).maybeSingle();if(d?.current_lat&&d?.current_lng)setDriver({lat:d.current_lat,lng:d.current_lng});}
-  }
-
-  useEffect(()=>{
-    load();
-    const channel=supabase.channel("trip-tracking-"+tripId)
-      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"trips",filter:"id=eq."+tripId},payload=>{const t=payload.new as any;setStatus(t.status);if(t.pickup_lat&&t.pickup_lng)setPassenger({lat:t.pickup_lat,lng:t.pickup_lng});})
-      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"drivers"},payload=>{const d=payload.new as any;if(driverId&&d.id===driverId&&d.current_lat&&d.current_lng)setDriver({lat:d.current_lat,lng:d.current_lng});})
-      .subscribe();
-    return()=>{supabase.removeChannel(channel)};
-  },[tripId,driverId]);
-
-  return <section className="tracking-panel"><div className="tracking-header"><div><span>VIAGEM EM TEMPO REAL</span><h2>{status==="completed"?"Viagem concluída":"Acompanhe a sua viagem"}</h2></div><strong>{status}</strong></div><TripMap driver={driver} passenger={passenger}/><div className="tracking-legend"><span>● Motorista</span><span>● Passageiro</span></div></section>;
+ const[driver,setDriver]=useState<Point|null>(null);const[passenger,setPassenger]=useState<Point|null>(null);const[status,setStatus]=useState("requested");
+ async function load(){const{data:t}=await supabase.from("trips").select("status,pickup_lat,pickup_lng").eq("id",tripId).maybeSingle();if(t){setStatus(t.status);if(t.pickup_lat&&t.pickup_lng)setPassenger({lat:t.pickup_lat,lng:t.pickup_lng})}if(driverId){const{data:d}=await supabase.from("drivers").select("current_lat,current_lng").eq("id",driverId).maybeSingle();if(d?.current_lat&&d?.current_lng)setDriver({lat:d.current_lat,lng:d.current_lng})}}
+ useEffect(()=>{load();const channel=supabase.channel("trip-tracking-"+tripId).on("postgres_changes",{event:"UPDATE",schema:"public",table:"trips",filter:"id=eq."+tripId},p=>{const t=p.new as any;setStatus(t.status);if(t.pickup_lat&&t.pickup_lng)setPassenger({lat:t.pickup_lat,lng:t.pickup_lng})}).on("postgres_changes",{event:"UPDATE",schema:"public",table:"drivers"},p=>{const d=p.new as any;if(driverId&&d.id===driverId&&d.current_lat&&d.current_lng)setDriver({lat:d.current_lat,lng:d.current_lng})}).subscribe();return()=>{supabase.removeChannel(channel)}},[tripId,driverId]);
+ return <section className="yb-tracking"><div className="yb-tracking-head"><div><span>ACOMPANHAMENTO</span><h3>{labels[status]||status}</h3></div><b><i/> EM TEMPO REAL</b></div><TripMap driver={driver} passenger={passenger}/><div className="yb-driver-card"><div className="yb-driver-avatar"><Car size={20}/></div><div><b>{driverId?"Motorista atribuído":"A procurar motorista"}</b><span>{status==="driver_arriving"?"Chegando ao ponto de recolha":"Actualizações automáticas da viagem"}</span></div>{driverId&&<div className="yb-driver-actions"><button title="Contactar motorista"><Phone size={15}/></button><button title="Mensagem"><MessageCircle size={15}/></button></div>}</div><div className="yb-safety"><ShieldCheck size={15}/> Partilhe a viagem e peça ajuda se precisar.</div></section>;
 }
