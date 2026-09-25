@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { MapPin, Navigation, CalendarDays, CreditCard, Clock3, Car, ChevronRight, Home, History, UserRound, Bell, Package, Route as RouteIcon, LocateFixed, X, CheckCircle2 } from "lucide-react";
+import { MapPin, Navigation, CalendarDays, CreditCard, Car, ChevronRight, Home, History, UserRound, Bell, Package, Route as RouteIcon, LocateFixed, CheckCircle2, ArrowUpDown, LoaderCircle } from "lucide-react";
+import TripTracking from "./TripTracking";
 
 type Route={id:string;origin:string;destination:string;base_fare:number;estimated_minutes:number};
-type Trip={id:string;origin:string;destination:string;status:string;fare:number|null;payment_method:string;scheduled_at:string|null};
+type Trip={id:string;origin:string;destination:string;status:string;fare:number|null;payment_method:string;scheduled_at:string|null;driver_id?:string|null};
 
 const statusLabel:Record<string,string>={
   requested:"A procurar motorista",
@@ -29,6 +30,9 @@ export default function PassengerDashboard(){
   const[message,setMessage]=useState("");
   const[loading,setLoading]=useState(false);
   const[tab,setTab]=useState<"home"|"trips"|"profile">("home");
+  const[locating,setLocating]=useState(false);
+  const[pickupCoords,setPickupCoords]=useState<{lat:number;lng:number}|null>(null);
+  const[locationMessage,setLocationMessage]=useState("");
 
   async function load(){
     const {data:session}=await supabase.auth.getSession();
@@ -36,7 +40,7 @@ export default function PassengerDashboard(){
     if(!uid)return;
     const[r,t]=await Promise.all([
       supabase.from("routes").select("id,origin,destination,base_fare,estimated_minutes").eq("active",true).order("origin"),
-      supabase.from("trips").select("id,origin,destination,status,fare,payment_method,scheduled_at").eq("passenger_id",uid).order("created_at",{ascending:false}).limit(20)
+      supabase.from("trips").select("id,origin,destination,status,fare,payment_method,scheduled_at,driver_id").eq("passenger_id",uid).order("created_at",{ascending:false}).limit(20)
     ]);
     if(r.data)setRoutes(r.data);
     if(t.data)setTrips(t.data);
@@ -61,17 +65,27 @@ export default function PassengerDashboard(){
       passenger_id:uid,route_id:route?.id??null,origin,destination,
       fare:route?.base_fare??null,payment_method:payment,
       scheduled_at:scheduled?new Date(scheduled).toISOString():null,
-      status:"requested"
+      status:"requested",
+      pickup_lat:pickupCoords?.lat??null,
+      pickup_lng:pickupCoords?.lng??null
     }).select("id").single();
     setLoading(false);
     if(result.error)setMessage(result.error.message);
-    else{setMessage("Pedido enviado. Estamos a procurar um motorista.");setOrigin("");setDestination("");setScheduled("");await load()}
+    else{setMessage("Pedido enviado. Estamos a procurar um motorista.");setOrigin("");setDestination("");setScheduled("");setPickupCoords(null);await load()}
   }
 
   const selectedRoute=useMemo(()=>routes.find(r=>r.origin===origin&&r.destination===destination),[routes,origin,destination]);
   const activeTrip=trips.find(t=>!["completed","cancelled"].includes(t.status));
-  const history=trips.filter(t=>["completed","cancelled"].includes(t.status));
-  const origins=[...new Set(routes.map(r=>r.origin))];
+    const origins=[...new Set(routes.map(r=>r.origin))];
+  function useCurrentLocation(){
+    if(!navigator.geolocation){setLocationMessage("A localização não está disponível neste dispositivo.");return;}
+    setLocating(true);setLocationMessage("");
+    navigator.geolocation.getCurrentPosition(
+      p=>{setPickupCoords({lat:p.coords.latitude,lng:p.coords.longitude});setLocationMessage("Localização actualizada para o ponto de recolha.");setLocating(false)},
+      ()=>{setLocationMessage("Não foi possível obter a localização. Verifique a permissão do navegador.");setLocating(false)},
+      {enableHighAccuracy:true,timeout:10000,maximumAge:30000}
+    );
+  }
   const destinations=[...new Set(routes.map(r=>r.destination))];
 
   return <div className="passenger-app">
@@ -98,13 +112,15 @@ export default function PassengerDashboard(){
         </div>
         <div className="passenger-booking">
           <div className="booking-handle"/>
-          <div className="passenger-greeting"><div><span>Olá, passageiro</span><h1>Para onde vamos?</h1></div><div className="mini-badge"><Car size={16}/></div></div>
+          <div className="passenger-greeting"><div><span>HORIZONTE BONINAS</span><h1>Para onde vamos?</h1><small className="booking-subtitle">Escolha a rota e confirme em poucos passos.</small></div><div className="mini-badge"><Car size={16}/></div></div>
           <form onSubmit={requestTrip}>
             <div className="location-stack">
               <div className="location-row"><span className="dot blue"/><div><small>De</small><select value={origin} onChange={e=>setOrigin(e.target.value)} required><option value="">Escolher origem</option>{origins.map(x=><option key={x}>{x}</option>)}</select></div></div>
               <div className="location-connector"/>
               <div className="location-row"><span className="dot pink"/><div><small>Para</small><select value={destination} onChange={e=>setDestination(e.target.value)} required><option value="">Escolher destino</option>{destinations.map(x=><option key={x}>{x}</option>)}</select></div></div>
             </div>
+            <div className="booking-tools"><button type="button" className="location-button" onClick={useCurrentLocation} disabled={locating}>{locating?<LoaderCircle size={15} className="spin"/>:<LocateFixed size={15}/>} {locating?"A localizar...":"Usar a minha localização"}</button><button type="button" className="swap-button" aria-label="Trocar origem e destino" onClick={()=>{const a=origin;setOrigin(destination);setDestination(a)}}><ArrowUpDown size={15}/></button></div>
+            {locationMessage&&<div className="location-message">{locationMessage}</div>}
             <div className="booking-options">
               <label><CalendarDays size={16}/><input type="datetime-local" value={scheduled} onChange={e=>setScheduled(e.target.value)}/></label>
               <label><CreditCard size={16}/><select value={payment} onChange={e=>setPayment(e.target.value)}><option value="cash">Numerário</option><option value="multicaixa">Multicaixa</option><option value="bank_transfer">Transferência</option><option value="wallet">Carteira digital</option></select></label>
@@ -125,6 +141,7 @@ export default function PassengerDashboard(){
         <div className="trip-route"><div><b>{activeTrip.origin}</b><span>Origem</span></div><div className="route-arrow"><ChevronRight/></div><div><b>{activeTrip.destination}</b><span>Destino</span></div></div>
         <div className="trip-progress"><span className="done"/><span className={activeTrip.status!=="requested"?"done":""}/><span className={["started","in_progress","completed"].includes(activeTrip.status)?"done":""}/></div>
       </section>}
+      {activeTrip&&<TripTracking tripId={activeTrip.id} driverId={activeTrip.driver_id??undefined}/>} 
 
       <section className="quick-services"><div className="dashboard-title"><div><span>SERVIÇOS</span><h2>Precisa de algo mais?</h2></div></div><div className="quick-grid"><button><Package/><span><b>Encomendas</b><small>Seguras e rápidas</small></span><ChevronRight/></button><button onClick={()=>setTab("trips")}><History/><span><b>Histórico</b><small>As suas viagens</small></span><ChevronRight/></button></div></section>
     </main>}
